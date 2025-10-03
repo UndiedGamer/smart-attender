@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { FirebaseError } from 'firebase/app';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import QRCode from 'qrcode';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -33,6 +33,15 @@ const initialState: SessionCreatorState = {
 
 interface SessionCreatorProps {
   onSessionCreated?: (session: AttendanceSession) => void;
+}
+
+function generateSecureId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const segment = () => Math.random().toString(36).slice(2, 10);
+  return `${segment()}-${segment()}`;
 }
 
 export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
@@ -105,8 +114,17 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
 
     try {
       const scheduledTimestamp = new Date(`${formState.date}T${formState.startTime}:00`);
+      const sessionsCollectionPath = user ? `teachers/${user.uid}/sessions` : null;
+      const sessionRef =
+        user && isFirebaseConfigured && sessionsCollectionPath
+          ? doc(collection(getFirestoreDb(), sessionsCollectionPath))
+          : null;
+
+      const sessionId = sessionRef?.id ?? generateSecureId();
+      const sessionToken = generateSecureId().replace(/-/g, '');
       const formattedLocation = `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
       const sessionPayload = {
+        sessionId,
         className: formState.className,
         subject: formState.subject,
         scheduledFor: scheduledTimestamp.toISOString(),
@@ -120,6 +138,8 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
       };
 
       const qrData = JSON.stringify({
+        sessionId,
+        sessionToken,
         className: sessionPayload.className,
         subject: sessionPayload.subject,
         scheduledFor: sessionPayload.scheduledFor,
@@ -131,16 +151,17 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
       const qrSvg = await QRCode.toDataURL(qrData, { width: 320 });
       setQrPreview(qrSvg);
 
-      if (user && isFirebaseConfigured) {
-        await addDoc(collection(getFirestoreDb(), `teachers/${user.uid}/sessions`), {
+      if (sessionRef && user && isFirebaseConfigured) {
+        await setDoc(sessionRef, {
           ...sessionPayload,
+          sessionToken,
           qrCodeData: qrData
         });
       }
 
       toast.success('Session prepared! Share the QR with your class.');
       onSessionCreated?.({
-        id: crypto.randomUUID(),
+        id: sessionId,
         className: sessionPayload.className,
         subject: sessionPayload.subject,
         scheduledFor: sessionPayload.scheduledFor,
@@ -148,6 +169,7 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
         locationCoordinates: coordinates,
         status: 'scheduled',
         qrCodeData: qrData,
+        sessionToken,
         expectedAttendance: sessionPayload.expectedAttendance,
         attendees: [],
         createdAt: new Date().toISOString()
@@ -305,7 +327,7 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
         </div>
         {qrPreview ? (
           <p className="mt-4 text-xs text-slate-500">
-            Tip: Save this QR code and project it when class begins. Students will still need to verify face & proximity.
+            Tip: Save this QR code and project it when class begins. Students will still need to pass the location and device checks.
           </p>
         ) : null}
       </div>

@@ -36,6 +36,7 @@ export function useAttendanceHistory(limitCount = 10) {
   const [records, setRecords] = useState<AttendanceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -74,7 +75,9 @@ export function useAttendanceHistory(limitCount = 10) {
             recordedAtLabel: typeof data.recordedAtLabel === 'string' ? data.recordedAtLabel : undefined,
             latitude: typeof data.latitude === 'number' ? data.latitude : undefined,
             longitude: typeof data.longitude === 'number' ? data.longitude : undefined,
-            faceVerified: typeof data.faceVerified === 'boolean' ? data.faceVerified : undefined,
+            deviceKey: typeof data.deviceKey === 'string' ? data.deviceKey : undefined,
+            devicePlatform: typeof data.devicePlatform === 'string' ? data.devicePlatform : undefined,
+            deviceModel: typeof data.deviceModel === 'string' ? data.deviceModel : undefined,
             notes: Array.isArray(data.notes) ? (data.notes as string[]) : undefined
           } satisfies AttendanceLog;
         });
@@ -89,11 +92,16 @@ export function useAttendanceHistory(limitCount = 10) {
     );
 
     return () => unsubscribe();
-  }, [user?.uid, limitCount]);
+  }, [user?.uid, limitCount, refreshKey]);
+
+  const refresh = () => {
+    setRefreshKey((value) => value + 1);
+  };
 
   return {
     records,
     loading,
-    error
+    error,
+    refresh
   };
 }

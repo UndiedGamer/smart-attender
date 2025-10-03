@@ -1,24 +1,44 @@
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { formatDistanceToNow, isValid, parseISO } from 'date-fns';
 
+import { Navbar } from '@/components/navbar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { useAuth } from '@/providers/AuthProvider';
 import { useAttendanceHistory } from '@/hooks/use-attendance-history';
 import type { AttendanceLog } from '@/lib/types/student';
 
 export default function HistoryScreen() {
-  const { records, loading, error } = useAttendanceHistory(20);
+  const { user, isMock } = useAuth();
+  const { records, loading, error, refresh } = useAttendanceHistory(20);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!loading && refreshing) {
+      setRefreshing(false);
+    }
+  }, [loading, refreshing]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    refresh();
+  };
 
   return (
     <ThemedView style={styles.screen}>
+      <Navbar subtitle="Review your check-in trail." />
       <ThemedText type="title">Attendance history</ThemedText>
       <ThemedText type="subtitle">Latest check-ins and flags.</ThemedText>
+      <ThemedText type="default" style={styles.accountHint}>
+        Viewing history as {user?.displayName ?? user?.email ?? (isMock ? 'demo student' : 'student')}
+      </ThemedText>
 
       <FlatList
         data={records}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => undefined} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
         renderItem={({ item }) => <HistoryItem log={item} />}
         ListEmptyComponent={
           loading ? <ThemedText>Loading history…</ThemedText> : <ThemedText>No attendance yet.</ThemedText>
@@ -54,8 +74,7 @@ function StatusPill({ status }: { status: string }) {
 
   return (
     <View style={[styles.pill, { backgroundColor: background }]}> 
-      <ThemedText type="defaultSemiBold" style={[styles.pillText, { color }]}
-      >
+      <ThemedText type="defaultSemiBold" style={[styles.pillText, { color }]}>
         {status.toUpperCase()}
       </ThemedText>
     </View>
@@ -80,6 +99,10 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     gap: 12
+  },
+  accountHint: {
+    fontSize: 13,
+    opacity: 0.8
   },
   listContent: {
     gap: 12,

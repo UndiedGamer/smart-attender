@@ -12,6 +12,8 @@ export interface AttendanceLog {
   recordedAtLabel?: string;
   latitude?: number;
   longitude?: number;
-  faceVerified?: boolean;
+  deviceKey?: string;
+  devicePlatform?: string | null;
+  deviceModel?: string | null;
   notes?: string[];
 }

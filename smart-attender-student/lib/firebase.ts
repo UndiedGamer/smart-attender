@@ -1,12 +1,7 @@
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import {
-  getAuth,
-  initializeAuth,
-  getReactNativePersistence,
-  type Auth
-} from 'firebase/auth';
+import { getAuth, type Auth, type Persistence } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -33,6 +28,21 @@ let firebaseApp: FirebaseApp | undefined;
 let firebaseAuth: Auth | undefined;
 let firestoreDb: Firestore | undefined;
 
+type ReactNativeAuthModule = {
+  initializeAuth: (app: FirebaseApp, deps?: { persistence?: Persistence | Persistence[] }) => Auth;
+  getReactNativePersistence: (storage: typeof AsyncStorage) => Persistence;
+};
+
+let reactNativeAuthModule: ReactNativeAuthModule | null = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    reactNativeAuthModule = require('@firebase/auth/dist/rn/index.js') as ReactNativeAuthModule;
+  } catch (error) {
+    console.warn('[firebase] Unable to load React Native Auth helpers', error);
+  }
+}
+
 function ensureApp(): FirebaseApp {
   if (!isFirebaseConfigured) {
     throw new Error(
@@ -52,17 +62,19 @@ function ensureApp(): FirebaseApp {
 export function getFirebaseAuth(): Auth {
   if (!firebaseAuth) {
     const app = ensureApp();
-
-    if (Platform.OS === 'web') {
-      firebaseAuth = getAuth(app);
-    } else {
+    if (Platform.OS !== 'web' && reactNativeAuthModule) {
       try {
-        firebaseAuth = initializeAuth(app, {
-          persistence: getReactNativePersistence(AsyncStorage)
+        firebaseAuth = reactNativeAuthModule.initializeAuth(app, {
+          persistence: reactNativeAuthModule.getReactNativePersistence(AsyncStorage)
         });
       } catch (error) {
+        console.warn('[firebase] Falling back to default Auth persistence', error);
         firebaseAuth = getAuth(app);
       }
+    }
+
+    if (!firebaseAuth) {
+      firebaseAuth = getAuth(app);
     }
   }
 

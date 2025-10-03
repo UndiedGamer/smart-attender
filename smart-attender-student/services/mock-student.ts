@@ -8,10 +8,12 @@ export interface MockStudentUser {
 }
 
 export function createMockStudent(email: string): MockStudentUser {
+  const normalized = email?.toLowerCase() ?? 'student@smart-attender.dev';
+  const uidSeed = normalized.replace(/[^a-z0-9]/gi, '').slice(0, 16) || 'student';
   return {
-    uid: `mock-${Math.random().toString(36).slice(2, 10)}`,
-    email,
-    displayName: email ? email.split('@')[0] : 'Demo Student',
+    uid: `mock-${uidSeed}`,
+    email: normalized,
+    displayName: normalized ? normalized.split('@')[0] : 'Demo Student',
     photoURL: null,
     providerId: 'demo',
     isMockUser: true

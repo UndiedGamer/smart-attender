@@ -2,6 +2,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-nat
 import { useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow, isValid, parseISO } from 'date-fns';
 
+import { Navbar } from '@/components/navbar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
@@ -12,7 +13,7 @@ import type { StudentTask } from '@/services/student-tasks';
 
 export default function TasksScreen() {
   const colorScheme = useColorScheme();
-  const { isMock } = useAuth();
+  const { user, isMock } = useAuth();
   const { tasks, loading, error, toggleTask, refresh } = useStudentTasks();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -37,9 +38,13 @@ export default function TasksScreen() {
 
   return (
     <ThemedView style={styles.screen}>
+      <Navbar subtitle="Stay on top of your assignments." />
       <View style={styles.header}>
         <ThemedText type="title">Tasks</ThemedText>
         <ThemedText type="subtitle">Keep up with your assignments and reminders.</ThemedText>
+        <ThemedText type="default" style={styles.accountHint}>
+          Managing tasks for {user?.displayName ?? user?.email ?? (isMock ? 'demo student' : 'student')}
+        </ThemedText>
         {isMock && (
           <ThemedText type="default">
             Demo mode active. Tasks sync locally until Firebase is configured.
@@ -152,6 +157,10 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: 8
+  },
+  accountHint: {
+    fontSize: 13,
+    opacity: 0.8
   },
   listContent: {
     gap: 12,

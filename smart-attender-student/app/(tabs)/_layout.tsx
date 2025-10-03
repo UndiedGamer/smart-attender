@@ -1,44 +1,19 @@
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
+import { Tabs } from 'expo-router';
+import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useAuth } from '@/providers/AuthProvider';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
-  if (loading) {
-    return (
-      <View style={[styles.center, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
-      </View>
-    );
-  }
-
-  useEffect(() => {
-    if (!user) {
-      router.replace('/(auth)/login' as never);
-    }
-  }, [router, user]);
-
-  if (!user) {
-    return (
-      <View style={[styles.center, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-        <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
-      </View>
-    );
-  }
+  const palette = Colors[colorScheme ?? 'light'];
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: palette.tint,
         headerShown: false,
         tabBarButton: HapticTab,
       }}>
@@ -74,10 +49,3 @@ export default function TabLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center'
-  }
-});

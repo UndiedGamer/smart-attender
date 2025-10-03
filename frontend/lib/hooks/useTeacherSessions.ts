@@ -39,6 +39,7 @@ export interface AttendanceSession {
   locationCoordinates?: SessionLocationCoordinates;
   status: SessionStatus;
   qrCodeData?: string;
+  sessionToken?: string;
   expectedAttendance: number;
   attendees: SessionAttendee[];
   createdAt: string;
@@ -65,6 +66,7 @@ const mockSessions: AttendanceSession[] = [
     },
     status: 'scheduled',
     qrCodeData: 'mock-session-1',
+    sessionToken: 'mock-token-1',
     expectedAttendance: 32,
     attendees: [
       {
@@ -98,6 +100,7 @@ const mockSessions: AttendanceSession[] = [
     },
     status: 'active',
     qrCodeData: 'mock-session-2',
+    sessionToken: 'mock-token-2',
     expectedAttendance: 28,
     attendees: [
       {
@@ -191,8 +194,9 @@ function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
             ? `${locationCoordinates.latitude.toFixed(5)}, ${locationCoordinates.longitude.toFixed(5)}`
             : 'Campus',
       locationCoordinates,
-      status: (data.status as SessionStatus) ?? 'scheduled',
-      qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
+    status: (data.status as SessionStatus) ?? 'scheduled',
+    qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
+    sessionToken: typeof data.sessionToken === 'string' ? data.sessionToken : undefined,
       expectedAttendance:
         typeof data.expectedAttendance === 'number'
           ? data.expectedAttendance

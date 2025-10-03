@@ -16,6 +16,7 @@ export interface AttendanceSession {
   location: string;
   locationCoordinates?: SessionLocationCoordinates;
   teacherId: string;
+  sessionToken?: string;
 }
 
 export interface SessionAttendee {

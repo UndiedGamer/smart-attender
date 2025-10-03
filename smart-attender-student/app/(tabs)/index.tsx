@@ -1,8 +1,9 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 
+import { Navbar } from '@/components/navbar';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
@@ -15,15 +16,13 @@ import type { StudentTask } from '@/services/student-tasks';
 export default function HomeScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
-  const { user, signOut, isMock } = useAuth();
+  const { user, isMock, signOut } = useAuth();
   const { tasks } = useStudentTasks();
   const { records } = useAttendanceHistory(5);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
   const goTo = (path: string) => router.push(path as never);
-  const handleSignOut = () => {
-    void signOut();
-  };
-
   const nextTask = useMemo(() => selectNextTask(tasks), [tasks]);
   const latestAttendance = records[0];
 
@@ -33,14 +32,42 @@ export default function HomeScreen() {
   const surfaceAltColor = colorScheme === 'dark' ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)';
   const statusTint = colorScheme === 'dark' ? 'rgba(10, 126, 164, 0.45)' : 'rgba(10, 126, 164, 0.16)';
 
+  const handleSignOut = async () => {
+    if (signingOut || isMock) {
+      return;
+    }
+
+    try {
+      setSignOutError(null);
+      setSigningOut(true);
+      await signOut();
+    } catch (err) {
+      console.error('Failed to sign out', err);
+      setSignOutError('Unable to sign out right now. Please try again.');
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   return (
     <ScrollView
       contentContainerStyle={[styles.container, { backgroundColor }]}
       showsVerticalScrollIndicator={false}
     >
+      <Navbar subtitle="Plan your day and stay on top of attendance." />
       <ThemedView style={[styles.headerCard, { backgroundColor: accentCardColor }]}>
-        <ThemedText type="subtitle">Hello{user?.displayName ? `, ${user.displayName}` : ''} 👋</ThemedText>
-        <ThemedText type="title">You're on track today.</ThemedText>
+        <View style={styles.accountRow}>
+          <View>
+            <ThemedText type="subtitle">Hello{user?.displayName ? `, ${user.displayName}` : ''} 👋</ThemedText>
+            <ThemedText type="default">{user?.email ?? 'Signed in'}</ThemedText>
+          </View>
+          {!isMock ? (
+            <ThemedText type="link" onPress={handleSignOut}>
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </ThemedText>
+          ) : null}
+        </View>
+        <ThemedText type="title">You&apos;re on track today.</ThemedText>
         <View style={styles.headerActions}>
           <ThemedText type="default">
             Ready for class? Start by marking your attendance when you arrive.
@@ -49,6 +76,7 @@ export default function HomeScreen() {
             Open scanner
           </ThemedText>
         </View>
+        {signOutError ? <ThemedText style={styles.errorText}>{signOutError}</ThemedText> : null}
       </ThemedView>
 
       <View style={styles.quickActions}>
@@ -107,9 +135,6 @@ export default function HomeScreen() {
 
       <View style={styles.footer}>
         {isMock && <ThemedText type="default">Connected in demo mode</ThemedText>}
-        <ThemedText type="link" onPress={handleSignOut}>
-          Sign out
-        </ThemedText>
       </View>
     </ScrollView>
   );
@@ -185,7 +210,7 @@ function formatRelativeLabel(dateString: string) {
 
   try {
     return formatDistanceToNow(parseISO(dateString), { addSuffix: true });
-  } catch (error) {
+  } catch {
     return 'soon';
   }
 }
@@ -205,7 +230,6 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 28,
     paddingBottom: 40,
     gap: 24
   },
@@ -213,6 +237,11 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 20,
     gap: 12
+  },
+  accountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
   },
   headerActions: {
     gap: 12
@@ -253,5 +282,8 @@ const styles = StyleSheet.create({
   footer: {
     marginTop: 'auto',
     gap: 8
+  },
+  errorText: {
+    color: '#ff5d5d'
   }
 });
