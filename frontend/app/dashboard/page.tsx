@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -49,6 +50,12 @@ export default function DashboardPage() {
               <p className="text-sm font-medium text-slate-900">{user?.displayName ?? 'Teacher'}</p>
               <p className="text-xs text-slate-500">{user?.email}</p>
             </div>
+            <Link
+              href="/dashboard/analytics"
+              className="hidden rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:border-primary-300 hover:text-primary-600 md:inline-flex"
+            >
+              View analytics
+            </Link>
             <SignOutButton />
           </div>
         </div>
@@ -69,7 +76,7 @@ export default function DashboardPage() {
 
         <div className="grid gap-8 lg:grid-cols-[1.5fr_1fr]">
           <AttendanceFeed sessions={combinedSessions} />
-          <TaskRecommendations />
+          <TaskRecommendations teacherId={user?.uid ?? undefined} />
         </div>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

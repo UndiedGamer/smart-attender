@@ -19,6 +19,12 @@ service cloud.firestore {
       }
     }
 
+    match /teacherAnalytics/{teacherId} {
+      allow read: if request.auth != null && request.auth.uid == teacherId;
+      allow create, update: if request.auth != null && request.auth.uid == teacherId;
+      allow delete: if false;
+    }
+
     match /publicSessions/{sessionToken} {
       allow read: if request.auth != null;
       allow create: if request.auth != null && request.auth.uid == request.resource.data.teacherId;

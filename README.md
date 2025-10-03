@@ -34,6 +34,8 @@ The `frontend/` directory contains the teacher-facing dashboard built with Next.
 
 Copy `.env.example` to `.env.local` inside the `frontend/` folder and fill in with your Firebase project details. The application no longer ships with default keys—every value must be supplied via environment variables.
 
+> **Note:** The new Gemini-powered task generator requires a `GEMINI_API_KEY`. Create a key in Google AI Studio and add it to the `.env.local` file to enable live suggestions. Without it, the dashboard falls back to static tasks.
+
 ```bash
 cp frontend/.env.example frontend/.env.local
 ```
