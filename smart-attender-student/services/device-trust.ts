@@ -3,7 +3,8 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { FirebaseError } from 'firebase/app';
+import { doc, getDoc, runTransaction, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 
 import { getFirestoreDb, isFirebaseConfigured } from '@/lib/firebase';
@@ -49,6 +50,8 @@ const DEVICE_KEY_ASYNC_STORAGE = DEVICE_KEY_STORAGE_KEY;
 const LEGACY_DEVICE_KEY_ASYNC_STORAGE = 'smart-attender/device-key';
 const MOCK_DEVICE_PREFIX = 'smart-attender/mock-device/';
 const EMULATOR_BLOCK_REASON = 'Virtual devices are not allowed for attendance.';
+const DEVICE_CONFLICT_REASON = 'This device is registered to another student. Use your approved device or request a transfer.';
+const DEVICE_VERIFICATION_FAILURE_REASON = 'Unable to verify device ownership. Check your connection or contact an administrator.';
 
 let secureStoreAvailable: boolean | null = null;
 
@@ -72,6 +75,55 @@ export async function ensureDeviceRegistration(user: AllowedUser | null | undefi
   }
 
   const db = getFirestoreDb();
+  const directoryRef = doc(db, 'deviceDirectory', deviceKey);
+  let deviceClaimedByOther = false;
+  let ownershipVerificationFailed = false;
+
+  const directoryPayload = {
+    studentId: user.uid,
+    lastSeenAt: serverTimestamp(),
+    platform: metadata.platform,
+    brand: metadata.brand ?? null,
+    modelName: metadata.modelName ?? null,
+    osVersion: metadata.osVersion ?? null,
+    appVersion: metadata.appVersion ?? null,
+    isPhysicalDevice: metadata.isPhysicalDevice,
+    attestationPassed: metadata.attestationPassed
+  } as const;
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(directoryRef);
+
+      if (!snapshot.exists()) {
+        transaction.set(directoryRef, {
+          ...directoryPayload,
+          createdAt: serverTimestamp()
+        });
+        return;
+      }
+
+      const data = snapshot.data() as Record<string, unknown>;
+      const ownerId = typeof data.studentId === 'string' ? data.studentId : null;
+
+      if (ownerId && ownerId !== user.uid) {
+        deviceClaimedByOther = true;
+        return;
+      }
+
+      transaction.update(directoryRef, {
+        ...directoryPayload
+      });
+    });
+  } catch (error) {
+    if (error instanceof FirebaseError && error.code === 'permission-denied') {
+      deviceClaimedByOther = true;
+    } else {
+      ownershipVerificationFailed = true;
+      console.warn('Unable to sync device ownership directory entry', error);
+    }
+  }
+
   const profileRef = doc(db, 'students', user.uid);
   const deviceRef = doc(db, 'students', user.uid, 'devices', deviceKey);
 
@@ -86,7 +138,13 @@ export async function ensureDeviceRegistration(user: AllowedUser | null | undefi
   let approvalState: DeviceApprovalState;
   let approvalReason: string | null = storedReason;
 
-  if (!metadata.isPhysicalDevice) {
+  if (deviceClaimedByOther) {
+    approvalState = 'blocked';
+    approvalReason = DEVICE_CONFLICT_REASON;
+  } else if (ownershipVerificationFailed) {
+    approvalState = 'blocked';
+    approvalReason = DEVICE_VERIFICATION_FAILURE_REASON;
+  } else if (!metadata.isPhysicalDevice) {
     approvalState = 'blocked';
     approvalReason = EMULATOR_BLOCK_REASON;
   } else if (storedState) {
@@ -125,8 +183,14 @@ export async function ensureDeviceRegistration(user: AllowedUser | null | undefi
   await setDoc(deviceRef, devicePayload, { merge: true });
 
   const profileUpdates: Record<string, unknown> = {};
+  const storedProfileState = toDeviceState(profileData.deviceApprovalState);
+  const storedProfileReason = typeof profileData.deviceApprovalReason === 'string' ? profileData.deviceApprovalReason : null;
   const shouldUpdateProfile =
-    approvalState === 'approved' || currentActiveKey === deviceKey || !currentActiveKey;
+    approvalState === 'approved' ||
+    currentActiveKey === deviceKey ||
+    !currentActiveKey ||
+    storedProfileState !== approvalState ||
+    storedProfileReason !== approvalReason;
 
   if (shouldUpdateProfile) {
     profileUpdates.deviceApprovalState = approvalState;

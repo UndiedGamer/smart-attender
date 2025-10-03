@@ -325,6 +325,10 @@ export async function recordAttendance({
   }
 
   if (device.approvalState !== 'approved') {
+    const reason = device.approvalReason ?? profile?.deviceApprovalReason;
+    if (reason) {
+      throw new Error(reason);
+    }
     throw new Error('This device has not been approved for attendance. Contact your administrator.');
   }
 
