@@ -17,6 +17,7 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { getFirebaseAuth, isFirebaseConfigured } from '@/lib/firebase';
+import { ensureTeacherDocument } from '@/lib/utils/ensureTeacherDocument';
 
 interface AuthContextValue {
   user: User | null;
@@ -40,9 +41,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return () => undefined;
     }
 
-    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), (firebaseUser: User | null) => {
+    const unsubscribe = onAuthStateChanged(getFirebaseAuth(), async (firebaseUser: User | null) => {
       setUser(firebaseUser);
       setLoading(false);
+
+      if (firebaseUser) {
+        try {
+          await ensureTeacherDocument(firebaseUser.uid, firebaseUser.displayName);
+        } catch (err) {
+          console.error('Failed to ensure teacher document exists', err);
+        }
+      }
     });
 
     return () => unsubscribe();

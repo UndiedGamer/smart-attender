@@ -51,6 +51,5 @@ Visit `http://localhost:3000` to sign in and explore the portal. The dashboard u
 ### Firebase setup notes
 
 * Update the Firebase Web App configuration in `frontend/lib/firebase.ts` or via env vars.
-* Ensure Firestore has a `teachers/{teacherId}/sessions` collection for real data.
 * The session creator stores GPS coordinates (lat/lng/accuracy) to enforce proximity verification downstream.
 * Review the [security checklist](./SECURITY.md) for guidance on rotating Firebase keys and managing secrets safely.

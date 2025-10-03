@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FirebaseError } from 'firebase/app';
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import QRCode from 'qrcode';
 import toast from 'react-hot-toast';
@@ -153,7 +154,7 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
       });
     } catch (error) {
       console.error(error);
-      toast.error('Unable to create session. Please try again.');
+      toast.error(getSessionErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -310,4 +311,25 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
       </div>
     </div>
   );
+}
+
+function getSessionErrorMessage(error: unknown): string {
+  if (error instanceof FirebaseError) {
+    switch (error.code) {
+      case 'permission-denied':
+        return 'Permission denied when writing to Firestore. Update your security rules to allow teachers to create sessions.';
+      case 'unauthenticated':
+        return 'Your session expired. Sign in again and try creating the session once more.';
+      case 'unavailable':
+        return 'Firestore is temporarily unavailable. Please retry in a moment.';
+      default:
+        return error.message || 'Unable to create session. Please try again.';
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message || 'Unable to create session. Please try again.';
+  }
+
+  return 'Unable to create session. Please try again.';
 }
