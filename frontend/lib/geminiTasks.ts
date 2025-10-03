@@ -1,4 +1,4 @@
-const MODEL = 'gemini-1.5-flash-latest';
+const MODEL = 'gemini-2.5-flash';
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 interface GeminiCandidate {

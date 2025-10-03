@@ -43,8 +43,10 @@ export interface DeviceRegistration {
   registeredAt?: string | null;
 }
 
-const DEVICE_KEY_SECURE_STORE = 'smart-attender/device-key';
-const DEVICE_KEY_ASYNC_STORAGE = 'smart-attender/device-key';
+const DEVICE_KEY_STORAGE_KEY = 'smart-attender.device-key';
+const DEVICE_KEY_SECURE_STORE = DEVICE_KEY_STORAGE_KEY;
+const DEVICE_KEY_ASYNC_STORAGE = DEVICE_KEY_STORAGE_KEY;
+const LEGACY_DEVICE_KEY_ASYNC_STORAGE = 'smart-attender/device-key';
 const MOCK_DEVICE_PREFIX = 'smart-attender/mock-device/';
 const EMULATOR_BLOCK_REASON = 'Virtual devices are not allowed for attendance.';
 
@@ -221,11 +223,26 @@ async function readStoredDeviceKey(): Promise<string | null> {
   }
 
   try {
-    return (await AsyncStorage.getItem(DEVICE_KEY_ASYNC_STORAGE)) ?? null;
+    const stored = await AsyncStorage.getItem(DEVICE_KEY_ASYNC_STORAGE);
+    if (stored) {
+      return stored;
+    }
+
+    const legacy = await AsyncStorage.getItem(LEGACY_DEVICE_KEY_ASYNC_STORAGE);
+    if (legacy) {
+      await AsyncStorage.setItem(DEVICE_KEY_ASYNC_STORAGE, legacy);
+      try {
+        await AsyncStorage.removeItem(LEGACY_DEVICE_KEY_ASYNC_STORAGE);
+      } catch (removeError) {
+        console.warn('Unable to remove legacy device key record', removeError);
+      }
+      return legacy;
+    }
   } catch (error) {
     console.warn('Unable to read device key from AsyncStorage', error);
-    return null;
   }
+
+  return null;
 }
 
 async function storeDeviceKey(value: string): Promise<void> {
@@ -241,6 +258,12 @@ async function storeDeviceKey(value: string): Promise<void> {
     await AsyncStorage.setItem(DEVICE_KEY_ASYNC_STORAGE, value);
   } catch (error) {
     console.warn('Unable to persist device key in AsyncStorage', error);
+  }
+
+  try {
+    await AsyncStorage.removeItem(LEGACY_DEVICE_KEY_ASYNC_STORAGE);
+  } catch (error) {
+    console.warn('Unable to remove legacy device key record', error);
   }
 }
 
