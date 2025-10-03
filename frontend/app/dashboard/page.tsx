@@ -8,7 +8,11 @@ import { OverviewCards } from '@/components/dashboard/OverviewCards';
 import { SessionCreator } from '@/components/dashboard/SessionCreator';
 import { AttendanceFeed } from '@/components/dashboard/AttendanceFeed';
 import { TaskRecommendations } from '@/components/dashboard/TaskRecommendations';
-import { useTeacherSessions, type AttendanceSession, type SessionAttendee } from '@/lib/hooks/useTeacherSessions';
+import {
+  useTeacherSessions,
+  type AttendanceSession,
+  type SessionAttendee
+} from '@/lib/hooks/useTeacherSessions';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -103,7 +107,14 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 text-slate-600">
                         {format(new Date(session.scheduledFor), 'MMM d, h:mm a')}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{session.location}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <p>{session.location}</p>
+                        {session.locationCoordinates?.accuracy ? (
+                          <p className="text-xs text-slate-400">
+                            ±{session.locationCoordinates.accuracy.toFixed(0)} m accuracy
+                          </p>
+                        ) : null}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">
                         {presentCount}/{session.expectedAttendance}
                       </td>

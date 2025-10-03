@@ -15,6 +15,13 @@ import { getFirestoreDb, isFirebaseConfigured } from '@/lib/firebase';
 type SessionStatus = 'scheduled' | 'active' | 'completed';
 type AttendanceStatus = 'present' | 'flagged' | 'late';
 
+export interface SessionLocationCoordinates {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  capturedAt?: string;
+}
+
 export interface SessionAttendee {
   id: string;
   name: string;
@@ -29,6 +36,7 @@ export interface AttendanceSession {
   subject: string;
   scheduledFor: string;
   location: string;
+  locationCoordinates?: SessionLocationCoordinates;
   status: SessionStatus;
   qrCodeData?: string;
   expectedAttendance: number;
@@ -48,7 +56,13 @@ const mockSessions: AttendanceSession[] = [
     className: 'Grade 10 — Section A',
     subject: 'Mathematics',
     scheduledFor: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
-    location: 'Room 204',
+    location: '12.9721, 77.5933',
+    locationCoordinates: {
+      latitude: 12.9721,
+      longitude: 77.5933,
+      accuracy: 12,
+      capturedAt: new Date().toISOString()
+    },
     status: 'scheduled',
     qrCodeData: 'mock-session-1',
     expectedAttendance: 32,
@@ -75,7 +89,13 @@ const mockSessions: AttendanceSession[] = [
     className: 'Grade 12 — Section C',
     subject: 'Physics Lab',
     scheduledFor: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-    location: 'Physics Lab',
+    location: '12.9344, 77.6107',
+    locationCoordinates: {
+      latitude: 12.9344,
+      longitude: 77.6107,
+      accuracy: 18,
+      capturedAt: new Date().toISOString()
+    },
     status: 'active',
     qrCodeData: 'mock-session-2',
     expectedAttendance: 28,
@@ -132,6 +152,30 @@ function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
         })
       : [];
 
+    const locationCoordinatesRaw = data.locationCoordinates as Record<string, unknown> | undefined;
+
+    let locationCoordinates: SessionLocationCoordinates | undefined;
+    if (locationCoordinatesRaw && typeof locationCoordinatesRaw === 'object') {
+      const latitude = Number(locationCoordinatesRaw.latitude);
+      const longitude = Number(locationCoordinatesRaw.longitude);
+
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        locationCoordinates = {
+          latitude,
+          longitude,
+          accuracy: Number.isFinite(Number(locationCoordinatesRaw.accuracy))
+            ? Number(locationCoordinatesRaw.accuracy)
+            : undefined,
+          capturedAt:
+            locationCoordinatesRaw.capturedAt instanceof Timestamp
+              ? locationCoordinatesRaw.capturedAt.toDate().toISOString()
+              : typeof locationCoordinatesRaw.capturedAt === 'string'
+                ? locationCoordinatesRaw.capturedAt
+                : undefined
+        };
+      }
+    }
+
     return {
       id: doc.id,
       className: String(data.className ?? 'Untitled Class'),
@@ -140,7 +184,13 @@ function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
         data.scheduledFor instanceof Timestamp
           ? data.scheduledFor.toDate().toISOString()
           : String(data.scheduledFor ?? new Date().toISOString()),
-      location: String(data.location ?? 'Campus'),
+      location:
+        typeof data.location === 'string'
+          ? data.location
+          : locationCoordinates
+            ? `${locationCoordinates.latitude.toFixed(5)}, ${locationCoordinates.longitude.toFixed(5)}`
+            : 'Campus',
+      locationCoordinates,
       status: (data.status as SessionStatus) ?? 'scheduled',
       qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
       expectedAttendance:
@@ -196,7 +246,7 @@ export function useTeacherSessions(teacherId?: string) {
       limit(15)
     );
 
-  const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<Record<string, unknown>>) => {
+    const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<Record<string, unknown>>) => {
       setSessions(transformSnapshot(snapshot));
       setLoading(false);
     });

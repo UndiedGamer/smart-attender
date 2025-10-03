@@ -16,3 +16,41 @@ Backend validation → Marks attendance if all conditions are met.
 * NextJS for the teacher website.
 * Firebase for teacher authentication + attendance saving + on-device ML model.
 * React-native geolocation for the location barrier. openCV for face recognition.
+
+## Teacher Web Portal (Next.js)
+
+The `frontend/` directory contains the teacher-facing dashboard built with Next.js 14, Tailwind CSS, and Firebase. Key capabilities:
+
+* **Firebase Auth** – email/password sign-in plus reset flow.
+* **Session creator** – teachers generate QR-based attendance sessions that include auto-captured GPS coordinates for proximity checks.
+* **Live overview** – dashboards for attendance metrics, activity feed, and personalized student task suggestions.
+
+### Prerequisites
+
+* [Bun](https://bun.sh) ≥ 1.2
+* Node.js ≥ 18 (for tooling compatibility)
+
+### Environment variables
+
+Copy `.env.example` to `.env.local` inside the `frontend/` folder and fill in with your Firebase project details. The application no longer ships with default keys—every value must be supplied via environment variables.
+
+```bash
+cp frontend/.env.example frontend/.env.local
+```
+
+### Install & run
+
+```bash
+cd frontend
+bun install
+bun run dev
+```
+
+Visit `http://localhost:3000` to sign in and explore the portal. The dashboard uses mock data until Firebase credentials are supplied.
+
+### Firebase setup notes
+
+* Update the Firebase Web App configuration in `frontend/lib/firebase.ts` or via env vars.
+* Ensure Firestore has a `teachers/{teacherId}/sessions` collection for real data.
+* The session creator stores GPS coordinates (lat/lng/accuracy) to enforce proximity verification downstream.
+* Review the [security checklist](./SECURITY.md) for guidance on rotating Firebase keys and managing secrets safely.

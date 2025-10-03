@@ -7,7 +7,10 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { getFirestoreDb, isFirebaseConfigured } from '@/lib/firebase';
 import { useAuth } from '@/components/auth/AuthProvider';
-import type { AttendanceSession } from '@/lib/hooks/useTeacherSessions';
+import type {
+  AttendanceSession,
+  SessionLocationCoordinates
+} from '@/lib/hooks/useTeacherSessions';
 
 interface SessionCreatorState {
   className: string;
@@ -15,7 +18,6 @@ interface SessionCreatorState {
   date: string;
   startTime: string;
   durationMinutes: number;
-  location: string;
   expectedAttendance: number;
 }
 
@@ -25,7 +27,6 @@ const initialState: SessionCreatorState = {
   date: new Date().toISOString().split('T')[0],
   startTime: format(new Date(), 'HH:mm'),
   durationMinutes: 45,
-  location: 'Room 101',
   expectedAttendance: 30
 };
 
@@ -38,26 +39,78 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
   const [formState, setFormState] = useState<SessionCreatorState>(initialState);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [qrPreview, setQrPreview] = useState<string | null>(null);
+  const [coordinates, setCoordinates] = useState<SessionLocationCoordinates | null>(null);
+  const [locationStatus, setLocationStatus] = useState<'idle' | 'locating' | 'success' | 'error'>('idle');
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
-  setFormState((prev: SessionCreatorState) => ({
+    setFormState((prev: SessionCreatorState) => ({
       ...prev,
       [name]: name === 'durationMinutes' || name === 'expectedAttendance' ? Number(value) : value
     }));
   };
 
+  const handleCaptureLocation = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      const message = 'Geolocation is not supported in this environment.';
+      setLocationStatus('error');
+      setLocationError(message);
+      toast.error(message);
+      return;
+    }
+
+    setLocationStatus('locating');
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const captured: SessionLocationCoordinates = {
+          latitude: Number(position.coords.latitude),
+          longitude: Number(position.coords.longitude),
+          accuracy: Number(position.coords.accuracy),
+          capturedAt: new Date().toISOString()
+        };
+        setCoordinates(captured);
+        setLocationStatus('success');
+        toast.success('Location captured');
+      },
+      (error) => {
+        const message =
+          error.code === error.PERMISSION_DENIED
+            ? 'Location permission denied. Enable it to tag the session.'
+            : 'Unable to capture location. Try again.';
+        setLocationStatus('error');
+        setLocationError(message);
+        toast.error(message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 15_000
+      }
+    );
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!coordinates) {
+      toast.error('Capture your current location before launching the session.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       const scheduledTimestamp = new Date(`${formState.date}T${formState.startTime}:00`);
+      const formattedLocation = `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`;
       const sessionPayload = {
         className: formState.className,
         subject: formState.subject,
         scheduledFor: scheduledTimestamp.toISOString(),
-        location: formState.location,
+        location: formattedLocation,
+        locationCoordinates: coordinates,
         durationMinutes: formState.durationMinutes,
         status: 'scheduled',
         expectedAttendance: formState.expectedAttendance,
@@ -70,7 +123,8 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
         subject: sessionPayload.subject,
         scheduledFor: sessionPayload.scheduledFor,
         teacherId: user?.uid ?? 'demo-teacher',
-        durationMinutes: sessionPayload.durationMinutes
+        durationMinutes: sessionPayload.durationMinutes,
+        locationCoordinates: coordinates
       });
 
       const qrSvg = await QRCode.toDataURL(qrData, { width: 320 });
@@ -89,7 +143,8 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
         className: sessionPayload.className,
         subject: sessionPayload.subject,
         scheduledFor: sessionPayload.scheduledFor,
-        location: sessionPayload.location,
+        location: formattedLocation,
+        locationCoordinates: coordinates,
         status: 'scheduled',
         qrCodeData: qrData,
         expectedAttendance: sessionPayload.expectedAttendance,
@@ -186,17 +241,38 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
               className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
             />
           </label>
-          <label className="md:col-span-2 space-y-2">
-            <span className="text-sm font-medium text-slate-700">Location</span>
-            <input
-              name="location"
-              value={formState.location}
-              onChange={handleChange}
-              required
-              placeholder="Main Building — Room 204"
-              className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-            />
-          </label>
+          <div className="md:col-span-2 space-y-3 rounded-xl border border-dashed border-primary-200 bg-primary-50/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <span className="text-sm font-medium text-slate-700">Location coordinates</span>
+                <p className="text-xs text-slate-500">Capture your current GPS location to enforce the proximity barrier.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCaptureLocation}
+                disabled={locationStatus === 'locating'}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-primary-400"
+              >
+                {locationStatus === 'locating' ? 'Capturing…' : 'Use current location'}
+              </button>
+            </div>
+            {coordinates ? (
+              <div className="rounded-lg bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                <p className="font-semibold">
+                  {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Accuracy ±{coordinates.accuracy?.toFixed(0) ?? '—'} meters • Captured {new Date(coordinates.capturedAt ?? Date.now()).toLocaleTimeString()}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">No coordinates captured yet.</p>
+            )}
+            {locationError ? <p className="text-sm text-rose-600">{locationError}</p> : null}
+            <p className="text-xs text-slate-400">
+              Tip: Allow location permissions in your browser. Coordinates are stored securely and only used for attendance validation.
+            </p>
+          </div>
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
