@@ -115,9 +115,10 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
     try {
       const scheduledTimestamp = new Date(`${formState.date}T${formState.startTime}:00`);
       const sessionsCollectionPath = user ? `teachers/${user.uid}/sessions` : null;
+      const db = user && isFirebaseConfigured ? getFirestoreDb() : null;
       const sessionRef =
-        user && isFirebaseConfigured && sessionsCollectionPath
-          ? doc(collection(getFirestoreDb(), sessionsCollectionPath))
+        user && isFirebaseConfigured && sessionsCollectionPath && db
+          ? doc(collection(db, sessionsCollectionPath))
           : null;
 
       const sessionId = sessionRef?.id ?? generateSecureId();
@@ -151,12 +152,31 @@ export function SessionCreator({ onSessionCreated }: SessionCreatorProps) {
       const qrSvg = await QRCode.toDataURL(qrData, { width: 320 });
       setQrPreview(qrSvg);
 
-      if (sessionRef && user && isFirebaseConfigured) {
-        await setDoc(sessionRef, {
-          ...sessionPayload,
-          sessionToken,
-          qrCodeData: qrData
-        });
+      if (sessionRef && user && isFirebaseConfigured && db) {
+        const publicRef = doc(collection(db, 'publicSessions'), sessionToken);
+
+        await Promise.all([
+          setDoc(sessionRef, {
+            ...sessionPayload,
+            sessionToken,
+            qrCodeData: qrData
+          }),
+          setDoc(publicRef, {
+            sessionId,
+            sessionPath: sessionRef.path,
+            sessionToken,
+            teacherId: user.uid,
+            className: sessionPayload.className,
+            subject: sessionPayload.subject,
+            scheduledFor: sessionPayload.scheduledFor,
+            durationMinutes: sessionPayload.durationMinutes,
+            expectedAttendance: sessionPayload.expectedAttendance,
+            location: formattedLocation,
+            locationCoordinates: coordinates,
+            status: sessionPayload.status,
+            createdAt: serverTimestamp()
+          })
+        ]);
       }
 
       toast.success('Session prepared! Share the QR with your class.');

@@ -8,11 +8,13 @@ import {
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   where,
   type DocumentData,
   type DocumentReference,
   type Transaction
 } from 'firebase/firestore';
+import { FirebaseError } from 'firebase/app';
 import { z } from 'zod';
 import { format } from 'date-fns';
 import { getFirestoreDb, isFirebaseConfigured } from '@/lib/firebase';
@@ -104,6 +106,90 @@ export async function resolveSessionFromPayload(payload: ScannedSessionPayload):
   }
 
   const db = getFirestoreDb();
+
+  const publicRef = doc(db, 'publicSessions', payload.sessionToken);
+  let publicSnapshot;
+
+  try {
+    publicSnapshot = await getDoc(publicRef);
+  } catch (error) {
+    if (error instanceof FirebaseError && error.code === 'permission-denied') {
+      throw new Error('You do not have permission to access this session. Ask your teacher to refresh the QR code.');
+    }
+    throw error;
+  }
+
+  if (publicSnapshot.exists()) {
+    const publicData = publicSnapshot.data() as Record<string, unknown>;
+    const teacherId = typeof publicData.teacherId === 'string' ? publicData.teacherId : payload.teacherId;
+    const resolvedSessionId = typeof publicData.sessionId === 'string' ? publicData.sessionId : payload.sessionId;
+    const sessionPath =
+      typeof publicData.sessionPath === 'string'
+        ? publicData.sessionPath
+        : `teachers/${teacherId}/sessions/${resolvedSessionId}`;
+
+    const sessionRef = doc(db, sessionPath);
+
+    let teacherData: Record<string, unknown> | null = null;
+
+    try {
+      const teacherSnapshot = await getDoc(sessionRef);
+      if (teacherSnapshot.exists()) {
+        teacherData = teacherSnapshot.data() as Record<string, unknown>;
+      }
+    } catch (error) {
+      if (!(error instanceof FirebaseError && error.code === 'permission-denied')) {
+        throw error;
+      }
+    }
+
+    const sourceData = teacherData ?? publicData;
+    const locationCoordinatesRaw = (sourceData.locationCoordinates ?? publicData.locationCoordinates) as
+      | Record<string, unknown>
+      | undefined;
+
+    const locationCoordinates: SessionLocationCoordinates | undefined = locationCoordinatesRaw
+      ? {
+          latitude: Number(locationCoordinatesRaw.latitude ?? payload.locationCoordinates.latitude),
+          longitude: Number(locationCoordinatesRaw.longitude ?? payload.locationCoordinates.longitude),
+          accuracy:
+            typeof locationCoordinatesRaw.accuracy === 'number'
+              ? locationCoordinatesRaw.accuracy
+              : typeof payload.locationCoordinates.accuracy === 'number'
+                ? payload.locationCoordinates.accuracy
+                : undefined,
+          capturedAt:
+            typeof locationCoordinatesRaw.capturedAt === 'string'
+              ? locationCoordinatesRaw.capturedAt
+              : undefined
+        }
+      : payload.locationCoordinates;
+
+    const session: AttendanceSession = {
+      id: resolvedSessionId,
+      teacherId,
+      className: String(sourceData.className ?? payload.className),
+      subject: String(sourceData.subject ?? payload.subject),
+      scheduledFor: typeof sourceData.scheduledFor === 'string' ? sourceData.scheduledFor : payload.scheduledFor,
+      durationMinutes: Number(sourceData.durationMinutes ?? payload.durationMinutes),
+      location:
+        typeof sourceData.location === 'string'
+          ? sourceData.location
+          : `${locationCoordinates?.latitude?.toFixed(5) ?? payload.locationCoordinates.latitude.toFixed(5)}, ${
+              locationCoordinates?.longitude?.toFixed(5) ?? payload.locationCoordinates.longitude.toFixed(5)
+            }`,
+      locationCoordinates,
+      sessionToken: typeof sourceData.sessionToken === 'string' ? sourceData.sessionToken : payload.sessionToken
+    };
+
+    return {
+      payload,
+      session,
+      sessionRef,
+      isMock: false
+    };
+  }
+
   const sessionsRef = collection(db, `teachers/${payload.teacherId}/sessions`);
 
   let resolvedRef: DocumentReference<DocumentData> | undefined;
@@ -111,18 +197,26 @@ export async function resolveSessionFromPayload(payload: ScannedSessionPayload):
 
   if (payload.sessionId) {
     const directRef = doc(db, `teachers/${payload.teacherId}/sessions`, payload.sessionId);
-    const directSnapshot = await getDoc(directRef);
 
-    if (directSnapshot.exists()) {
-      const directData = directSnapshot.data() as Record<string, unknown>;
-      const storedToken = typeof directData.sessionToken === 'string' ? directData.sessionToken : null;
+    try {
+      const directSnapshot = await getDoc(directRef);
 
-      if (storedToken && storedToken !== payload.sessionToken) {
-        throw new Error('This session QR code has expired. Ask your teacher to refresh it and try again.');
+      if (directSnapshot.exists()) {
+        const directData = directSnapshot.data() as Record<string, unknown>;
+        const storedToken = typeof directData.sessionToken === 'string' ? directData.sessionToken : null;
+
+        if (storedToken && storedToken !== payload.sessionToken) {
+          throw new Error('This session QR code has expired. Ask your teacher to refresh it and try again.');
+        }
+
+        resolvedRef = directSnapshot.ref;
+        data = directData;
       }
-
-      resolvedRef = directSnapshot.ref;
-      data = directData;
+    } catch (error) {
+      if (error instanceof FirebaseError && error.code === 'permission-denied') {
+        throw new Error('Missing permission to read this session. Ask your teacher to refresh the QR code.');
+      }
+      throw error;
     }
   }
 
@@ -279,37 +373,70 @@ export async function recordAttendance({
     throw new Error('Session reference unavailable.');
   }
 
-  await runTransaction(db, async (transaction: Transaction) => {
-    const snapshot = await transaction.get(session.sessionRef!);
-    if (!snapshot.exists()) {
-      throw new Error('Session was removed before attendance could be recorded.');
-    }
+  const attendeeEntry = {
+    id: student.uid,
+    name: student.displayName ?? student.email ?? 'Student',
+    status,
+    proximityMeters,
+    scannedAt: serverTimestamp(),
+    deviceKey: device.deviceKey,
+    devicePlatform: device.platform,
+    deviceModel: device.modelName
+  } satisfies Record<string, unknown>;
 
-    const data = snapshot.data() as Record<string, unknown>;
-    const attendees = Array.isArray(data.attendees) ? [...(data.attendees as Array<Record<string, unknown>>)] : [];
+  try {
+    await runTransaction(db, async (transaction: Transaction) => {
+      const snapshot = await transaction.get(session.sessionRef!);
+      if (!snapshot.exists()) {
+        throw new Error('Session was removed before attendance could be recorded.');
+      }
 
-    const attendeeEntry = {
-      id: student.uid,
-      name: student.displayName ?? student.email ?? 'Student',
-      status,
-      proximityMeters,
-      scannedAt: serverTimestamp(),
-      deviceKey: device.deviceKey,
-      devicePlatform: device.platform,
-      deviceModel: device.modelName
-    } satisfies Record<string, unknown>;
+      const data = snapshot.data() as Record<string, unknown>;
+      const attendees = Array.isArray(data.attendees) ? [...(data.attendees as Array<Record<string, unknown>>)] : [];
 
-    const existingIndex = attendees.findIndex((attendee) => attendee?.id === student.uid);
-    if (existingIndex >= 0) {
-      attendees[existingIndex] = attendeeEntry;
-    } else {
-      attendees.push(attendeeEntry);
-    }
+      const existingIndex = attendees.findIndex((attendee) => attendee?.id === student.uid);
+      if (existingIndex >= 0) {
+        attendees[existingIndex] = attendeeEntry;
+      } else {
+        attendees.push(attendeeEntry);
+      }
 
-    transaction.update(session.sessionRef!, {
-      attendees
+      transaction.update(session.sessionRef!, {
+        attendees
+      });
     });
-  });
+  } catch (transactionError) {
+    if (!(transactionError instanceof FirebaseError && transactionError.code === 'permission-denied')) {
+      throw transactionError;
+    }
+    notes.push('Teacher session will sync attendance when permissions are updated.');
+  }
+
+  const sessionToken = session.session.sessionToken;
+  if (!sessionToken) {
+    throw new Error('Session token missing from record. Ask your teacher to regenerate the QR code.');
+  }
+
+  const attendanceDoc = {
+    studentId: student.uid,
+    studentName: student.displayName ?? student.email ?? 'Student',
+    status,
+    proximityMeters,
+    scannedAt: serverTimestamp(),
+    deviceKey: device.deviceKey,
+    devicePlatform: device.platform,
+    deviceModel: device.modelName,
+    studentLatitude: studentLocation.latitude,
+    studentLongitude: studentLocation.longitude,
+    teacherId: session.session.teacherId,
+    sessionId: session.session.id,
+    sessionToken,
+    notes,
+    updatedAt: serverTimestamp()
+  } satisfies Record<string, unknown>;
+
+  const attendanceRef = doc(db, 'publicSessions', sessionToken, 'attendances', student.uid);
+  await setDoc(attendanceRef, attendanceDoc, { merge: true });
 
   const attendanceLog = {
     sessionId: session.session.id,

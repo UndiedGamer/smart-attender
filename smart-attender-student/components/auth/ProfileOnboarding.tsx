@@ -229,7 +229,7 @@ function DeviceTrustStep({
           background: infoBackground
         };
     }
-  }, [colorScheme, device?.approvalReason, palette]);
+  }, [colorScheme, device?.approvalReason, palette, status]);
 
   const metadata = useMemo(() => {
     if (!device) {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Timestamp,
   collection,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -122,11 +123,48 @@ const mockSessions: AttendanceSession[] = [
   }
 ];
 
-function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
-  return snapshot.docs.map((doc) => {
+async function loadPublicAttendees(sessionToken: string): Promise<SessionAttendee[]> {
+  try {
+    const snapshot = await getDocs(collection(getFirestoreDb(), 'publicSessions', sessionToken, 'attendances'));
+    return snapshot.docs.map((docSnapshot) => {
+      const data = docSnapshot.data() ?? {};
+      const scannedAtValue = data.scannedAt as unknown;
+      const proximityValue = data.proximityMeters as unknown;
+
+      const scannedAt =
+        scannedAtValue instanceof Timestamp
+          ? scannedAtValue.toDate().toISOString()
+          : typeof scannedAtValue === 'string'
+            ? scannedAtValue
+            : undefined;
+
+      const proximityMeters =
+        typeof proximityValue === 'number'
+          ? proximityValue
+          : Number.isFinite(Number(proximityValue))
+            ? Number(proximityValue)
+            : undefined;
+
+      return {
+        id: String(data.studentId ?? docSnapshot.id ?? ''),
+        name: String(data.studentName ?? 'Student'),
+        status: (data.status as AttendanceStatus) ?? 'present',
+        scannedAt,
+        proximityMeters
+      } satisfies SessionAttendee;
+    });
+  } catch (error) {
+    console.error('Failed to load public attendees', error);
+    return [];
+  }
+}
+
+async function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
+  const sessions = await Promise.all(
+    snapshot.docs.map(async (doc) => {
     const data = doc.data() ?? {};
-    const attendees = Array.isArray(data.attendees)
-      ? data.attendees.map((attendeeRaw: unknown) => {
+      const attendees: SessionAttendee[] = Array.isArray(data.attendees)
+        ? data.attendees.map((attendeeRaw: unknown) => {
           const attendee = attendeeRaw as Record<string, unknown>;
           const scannedAtValue = attendee.scannedAt as unknown;
           const proximityValue = attendee.proximityMeters as unknown;
@@ -179,7 +217,16 @@ function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
       }
     }
 
-    return {
+  let combinedAttendees: SessionAttendee[] = attendees;
+  const sessionToken = typeof data.sessionToken === 'string' ? data.sessionToken : undefined;
+      if (sessionToken) {
+        const publicAttendees = await loadPublicAttendees(sessionToken);
+        if (publicAttendees.length) {
+          combinedAttendees = publicAttendees;
+        }
+      }
+
+      return {
       id: doc.id,
       className: String(data.className ?? 'Untitled Class'),
       subject: String(data.subject ?? 'Subject'),
@@ -195,19 +242,22 @@ function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
             : 'Campus',
       locationCoordinates,
     status: (data.status as SessionStatus) ?? 'scheduled',
-    qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
-    sessionToken: typeof data.sessionToken === 'string' ? data.sessionToken : undefined,
+      qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
+      sessionToken,
       expectedAttendance:
         typeof data.expectedAttendance === 'number'
           ? data.expectedAttendance
           : parseInt(String(data.expectedAttendance ?? attendees.length), 10),
-      attendees,
+      attendees: combinedAttendees,
       createdAt:
         data.createdAt instanceof Timestamp
           ? data.createdAt.toDate().toISOString()
           : String(data.createdAt ?? new Date().toISOString())
     } satisfies AttendanceSession;
-  });
+    })
+  );
+
+  return sessions;
 }
 
 function calculateMetrics(sessions: AttendanceSession[]): SessionsMetrics {
@@ -250,8 +300,9 @@ export function useTeacherSessions(teacherId?: string) {
       limit(15)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<Record<string, unknown>>) => {
-      setSessions(transformSnapshot(snapshot));
+    const unsubscribe = onSnapshot(q, async (snapshot: QuerySnapshot<Record<string, unknown>>) => {
+      const nextSessions = await transformSnapshot(snapshot);
+      setSessions(nextSessions);
       setLoading(false);
     });
 

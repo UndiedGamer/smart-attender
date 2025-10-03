@@ -328,19 +328,20 @@ export default function CheckInScreen() {
               </ThemedText>
             </ThemedView>
           ) : (
-            <CameraView
-              ref={cameraRef}
-              facing={cameraFacing}
-              style={styles.camera}
-              barcodeScannerSettings={step === 'scan' ? { barcodeTypes: ['qr'] } : undefined}
-              onBarcodeScanned={step === 'scan' ? handleBarcodeScanned : undefined}
-            >
+            <View style={styles.cameraWrapper}>
+              <CameraView
+                ref={cameraRef}
+                facing={cameraFacing}
+                style={styles.camera}
+                barcodeScannerSettings={step === 'scan' ? { barcodeTypes: ['qr'] } : undefined}
+                onBarcodeScanned={step === 'scan' ? handleBarcodeScanned : undefined}
+              />
               <View style={[styles.overlay, { backgroundColor: overlayBackground }]}> 
                 <ThemedText type="defaultSemiBold">Scan the QR code</ThemedText>
                 <ThemedText>Position the QR within the frame to capture it.</ThemedText>
-                <ThemedText>We'll confirm your location when you submit.</ThemedText>
+                <ThemedText>We’ll confirm your location when you submit.</ThemedText>
               </View>
-            </CameraView>
+            </View>
           )}
         </View>
 
@@ -517,6 +518,9 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 24,
     overflow: 'hidden'
+  },
+  cameraWrapper: {
+    flex: 1
   },
   camera: {
     flex: 1
