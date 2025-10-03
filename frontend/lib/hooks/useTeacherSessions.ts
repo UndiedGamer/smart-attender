@@ -1,0 +1,214 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Timestamp,
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  type QuerySnapshot
+} from 'firebase/firestore';
+import { getFirestoreDb, isFirebaseConfigured } from '@/lib/firebase';
+
+type SessionStatus = 'scheduled' | 'active' | 'completed';
+type AttendanceStatus = 'present' | 'flagged' | 'late';
+
+export interface SessionAttendee {
+  id: string;
+  name: string;
+  status: AttendanceStatus;
+  scannedAt?: string;
+  proximityMeters?: number;
+}
+
+export interface AttendanceSession {
+  id: string;
+  className: string;
+  subject: string;
+  scheduledFor: string;
+  location: string;
+  status: SessionStatus;
+  qrCodeData?: string;
+  expectedAttendance: number;
+  attendees: SessionAttendee[];
+  createdAt: string;
+}
+
+interface SessionsMetrics {
+  upcomingCount: number;
+  averageAttendanceRate: number;
+  activeSession?: AttendanceSession;
+}
+
+const mockSessions: AttendanceSession[] = [
+  {
+    id: 'mock-1',
+    className: 'Grade 10 — Section A',
+    subject: 'Mathematics',
+    scheduledFor: new Date(Date.now() + 1000 * 60 * 30).toISOString(),
+    location: 'Room 204',
+    status: 'scheduled',
+    qrCodeData: 'mock-session-1',
+    expectedAttendance: 32,
+    attendees: [
+      {
+        id: 's1',
+        name: 'Riya Sharma',
+        status: 'present',
+        scannedAt: new Date().toISOString(),
+        proximityMeters: 3
+      },
+      {
+        id: 's2',
+        name: 'Arjun Patel',
+        status: 'flagged',
+        scannedAt: new Date().toISOString(),
+        proximityMeters: 28
+      }
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'mock-2',
+    className: 'Grade 12 — Section C',
+    subject: 'Physics Lab',
+    scheduledFor: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    location: 'Physics Lab',
+    status: 'active',
+    qrCodeData: 'mock-session-2',
+    expectedAttendance: 28,
+    attendees: [
+      {
+        id: 's3',
+        name: 'Devika Iyer',
+        status: 'present',
+        scannedAt: new Date().toISOString(),
+        proximityMeters: 6
+      },
+      {
+        id: 's4',
+        name: 'Kunal Singh',
+        status: 'late',
+        scannedAt: new Date().toISOString(),
+        proximityMeters: 5
+      }
+    ],
+    createdAt: new Date().toISOString()
+  }
+];
+
+function transformSnapshot(snapshot: QuerySnapshot<Record<string, unknown>>) {
+  return snapshot.docs.map((doc) => {
+    const data = doc.data() ?? {};
+    const attendees = Array.isArray(data.attendees)
+      ? data.attendees.map((attendeeRaw: unknown) => {
+          const attendee = attendeeRaw as Record<string, unknown>;
+          const scannedAtValue = attendee.scannedAt as unknown;
+          const proximityValue = attendee.proximityMeters as unknown;
+
+          const scannedAt =
+            scannedAtValue instanceof Timestamp
+              ? scannedAtValue.toDate().toISOString()
+              : typeof scannedAtValue === 'string'
+                ? scannedAtValue
+                : undefined;
+
+          const proximityMeters =
+            typeof proximityValue === 'number'
+              ? proximityValue
+              : Number.isFinite(Number(proximityValue))
+                ? Number(proximityValue)
+                : undefined;
+
+          return {
+            id: String(attendee.id ?? ''),
+            name: String(attendee.name ?? 'Unknown'),
+            status: (attendee.status as AttendanceStatus) ?? 'present',
+            scannedAt,
+            proximityMeters
+          } satisfies SessionAttendee;
+        })
+      : [];
+
+    return {
+      id: doc.id,
+      className: String(data.className ?? 'Untitled Class'),
+      subject: String(data.subject ?? 'Subject'),
+      scheduledFor:
+        data.scheduledFor instanceof Timestamp
+          ? data.scheduledFor.toDate().toISOString()
+          : String(data.scheduledFor ?? new Date().toISOString()),
+      location: String(data.location ?? 'Campus'),
+      status: (data.status as SessionStatus) ?? 'scheduled',
+      qrCodeData: typeof data.qrCodeData === 'string' ? data.qrCodeData : undefined,
+      expectedAttendance:
+        typeof data.expectedAttendance === 'number'
+          ? data.expectedAttendance
+          : parseInt(String(data.expectedAttendance ?? attendees.length), 10),
+      attendees,
+      createdAt:
+        data.createdAt instanceof Timestamp
+          ? data.createdAt.toDate().toISOString()
+          : String(data.createdAt ?? new Date().toISOString())
+    } satisfies AttendanceSession;
+  });
+}
+
+function calculateMetrics(sessions: AttendanceSession[]): SessionsMetrics {
+  const upcomingCount = sessions.filter((session) => {
+    const scheduled = new Date(session.scheduledFor).getTime();
+    return scheduled > Date.now() && session.status !== 'completed';
+  }).length;
+
+  const rates = sessions
+    .filter((session) => session.expectedAttendance > 0)
+    .map((session) => session.attendees.filter((a) => a.status === 'present').length / session.expectedAttendance);
+
+  const averageAttendanceRate = rates.length
+    ? Math.round((rates.reduce((sum, rate) => sum + rate, 0) / rates.length) * 100)
+    : 0;
+
+  const activeSession = sessions.find((session) => session.status === 'active');
+
+  return {
+    upcomingCount,
+    averageAttendanceRate,
+    activeSession
+  };
+}
+
+export function useTeacherSessions(teacherId?: string) {
+  const [sessions, setSessions] = useState<AttendanceSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!teacherId || !isFirebaseConfigured) {
+      setSessions(mockSessions);
+      setLoading(false);
+      return () => undefined;
+    }
+
+    const q = query(
+      collection(getFirestoreDb(), `teachers/${teacherId}/sessions`),
+      orderBy('scheduledFor', 'desc'),
+      limit(15)
+    );
+
+  const unsubscribe = onSnapshot(q, (snapshot: QuerySnapshot<Record<string, unknown>>) => {
+      setSessions(transformSnapshot(snapshot));
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [teacherId]);
+
+  const metrics = useMemo(() => calculateMetrics(sessions), [sessions]);
+
+  return {
+    sessions,
+    loading,
+    metrics
+  };
+}
