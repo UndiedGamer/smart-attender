@@ -1,46 +1,63 @@
-# smart-attender
-For this problem statement our aim is to integrate a smart attendance tracking system. The idea is as follows:
-1. Teacher creates a qr link connected to the class name + subject name + date.
-2. Student scans this from their phone and verifies their face. After their face scan is done, the system will calculate the proximity of teacher and student to decide whether the student gets the attendance or not.
-3. During the free period, the system will suggest some tasks to the student based on their class and their learning capabilities.
+# Smart Attender
 
-## Core Flow of Attendance
+## Team
 
-Teacher initiates class → App generates a QR code tied to subject + time + location.
-Student scans QR → App asks for face authentication.
-GPS/Proximity check → Ensures student is within X meters of teacher’s registered location/device.
-Backend validation → Marks attendance if all conditions are met.
+- **Team Name:** The Underground
+- **Team ID:** T-112
 
-## Technical Stack
-* React-native for student and teacher app.
-* NextJS for the teacher website.
-* Firebase for teacher authentication + attendance saving + on-device ML model.
-* React-native geolocation for the location barrier. openCV for face recognition.
+| Member | Role |
+| --- | --- |
+| Hemanth | Backend architect and developer |
+| Vishwaharthaj | Idea and Presentation |
+| Akhil reddy | Frontend |
+| Satwik | Data analysis on student records |
+| Vishnu Prabhas | Designing and presentation |
 
-## Teacher Web Portal (Next.js)
+## Problem Statement
 
-The `frontend/` directory contains the teacher-facing dashboard built with Next.js 14, Tailwind CSS, and Firebase. Key capabilities:
+Many educational institutions still depend on manual attendance systems, which are time-consuming and error-prone. Teachers spend a significant portion of class time marking attendance, reducing valuable instructional hours. Additionally, students often waste free periods with unproductive activities due to a lack of structured guidance. This leads to poor time management and reduced alignment with long-term academic or career goals. There is also a gap in personalized learning support during idle classroom hours. Institutions currently lack tools that integrate daily schedules with individual student planning and automated tracking.
 
-* **Firebase Auth** – email/password sign-in plus reset flow.
-* **Session creator** – teachers generate QR-based attendance sessions that include auto-captured GPS coordinates for proximity checks.
-* **Live overview** – dashboards for attendance metrics, activity feed, and personalized student task suggestions.
+## Solution Overview
+
+1. **Session setup:** The teacher portal generates a QR code bound to subject, schedule, and location.
+2. **Student check-in:** The mobile app scans the QR code, verifies the trusted device, and gathers GPS coordinates.
+3. **Proximity validation:** We calculate the distance between the student and session coordinates and adjust for GPS accuracy.
+4. **Attendance logging:** Firestore transactions record the result in both the teacher’s session document and the student’s personal log.
+5. **Enrichment:** Students receive short, AI-generated tasks to use their free period productively.
+
+## Tech Stack
+
+- **Mobile:** Expo React Native (TypeScript), Expo SecureStore, geolocation APIs
+- **Web:** Next.js 14, Tailwind CSS, React Server Components
+- **Backend & Data:** Firebase Auth, Firestore, Firestore security rules, Gemini 2.5 Flash API
+- **Tooling:** Bun package manager, Node.js ≥ 18, ESLint & TypeScript
+
+## How to Run the Project
 
 ### Prerequisites
 
-* [Bun](https://bun.sh) ≥ 1.2
-* Node.js ≥ 18 (for tooling compatibility)
+- [Bun](https://bun.sh) ≥ 1.2
+- Node.js ≥ 18
+- Expo CLI (installed globally via `npm install -g expo-cli`)
+- Firebase project with Web and Native app credentials
 
-### Environment variables
+### Environment Variables
 
-Copy `.env.example` to `.env.local` inside the `frontend/` folder and fill in with your Firebase project details. The application no longer ships with default keys—every value must be supplied via environment variables.
+1. Copy the provided examples:
 
-> **Note:** The new Gemini-powered task generator requires a `GEMINI_API_KEY`. Create a key in Google AI Studio and add it to the `.env.local` file to enable live suggestions. Without it, the dashboard falls back to static tasks.
+	```bash
+	cp frontend/.env.example frontend/.env.local
+	cp smart-attender-student/.env.example smart-attender-student/.env.local
+	```
 
-```bash
-cp frontend/.env.example frontend/.env.local
-```
+2. Populate both `.env.local` files with your Firebase keys. Required fields:
 
-### Install & run
+	- Frontend: `NEXT_PUBLIC_FIREBASE_*` plus `GEMINI_API_KEY`
+	- Student app: `EXPO_PUBLIC_FIREBASE_*`, `EXPO_PUBLIC_TEACHER_API_BASE_URL`, optional `EXPO_PUBLIC_STUDENT_TASKS_ENDPOINT`
+
+3. Create a Gemini API key in Google AI Studio for live task generation (falls back to static ideas if omitted).
+
+### Teacher Web Portal (Next.js)
 
 ```bash
 cd frontend
@@ -48,10 +65,22 @@ bun install
 bun run dev
 ```
 
-Visit `http://localhost:3000` to sign in and explore the portal. The dashboard uses mock data until Firebase credentials are supplied.
+Visit `http://localhost:3000` to authenticate and manage sessions. Without Firebase credentials the portal runs in mock mode.
 
-### Firebase setup notes
+### Student Mobile App (Expo)
 
-* Update the Firebase Web App configuration in `frontend/lib/firebase.ts` or via env vars.
-* The session creator stores GPS coordinates (lat/lng/accuracy) to enforce proximity verification downstream.
-* Review the [security checklist](./SECURITY.md) for guidance on rotating Firebase keys and managing secrets safely.
+```bash
+cd smart-attender-student
+bun install
+bun run android
+```
+
+Scan the QR code with an Expo Go client or run on a connected device/emulator. Device registration, proximity checks, and attendance logging require the same Firebase project configured above.
+
+## Special Notes
+
+- Device trust sticks to the first student who registers; anyone else on that hardware is blocked with a clear message.
+- We subtract the combined GPS accuracy margin from the distance check so noisy signals don’t trigger false flags.
+- Seed scripts depend on Firestore rules being deployed with `firebase deploy --only firestore:rules`.
+- Gemini task calls consume your Google Cloud quota—cache or throttle them in production.
+- Update the team name, ID, and member table with your final submission details.
